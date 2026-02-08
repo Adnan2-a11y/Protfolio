@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, useScroll, useTransform, useSpring, MotionValue } from 'framer-motion';
 import { RANDOM_SPHERES } from '../constants';
 
@@ -9,6 +9,33 @@ interface ExperienceCanvasProps {
 const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) => {
   // 1. Spring Physics for Organic Feel (Stiffness 100, Damping 20)
   const smoothProgress = useSpring(scrollProgress, { damping: 20, stiffness: 100 });
+
+  // 2. Mouse Parallax State
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  
+  useEffect(() => {
+    const handleMouseMove = (ev: MouseEvent) => {
+      setMousePosition({
+        x: ev.clientX / window.innerWidth - 0.5,
+        y: ev.clientY / window.innerHeight - 0.5
+      });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  // Smooth mouse movement
+  const smoothMouseX = useSpring(mousePosition.x, { stiffness: 50, damping: 20 });
+  const smoothMouseY = useSpring(mousePosition.y, { stiffness: 50, damping: 20 });
+
+  // Parallax transforms
+  // Background moves opposite to mouse
+  const bgX = useTransform(smoothMouseX, [-0.5, 0.5], [20, -20]); 
+  const bgY = useTransform(smoothMouseY, [-0.5, 0.5], [20, -20]);
+  
+  // Main sphere moves slightly with mouse (depth effect)
+  const mainX = useTransform(smoothMouseX, [-0.5, 0.5], [-10, 10]);
+  const mainYParallax = useTransform(smoothMouseY, [-0.5, 0.5], [-10, 10]);
 
   // --- Animation Timeline ---
   // 0.00 - 0.15: Hero (Junior -> Absorb)
@@ -45,8 +72,6 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
   );
 
   // Junior Flicker (Opacity noise)
-  // We can't easily map random noise to scroll, so we use CSS animation for the flicker
-  // but we control its intensity via opacity of the "Junior" overlay or class.
   const juniorFlickerOpacity = useTransform(smoothProgress, [0, 0.1], [1, 0]);
 
   // MERN Heartbeat Opacity
@@ -54,8 +79,6 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
 
   // Git Ghost Trails
   const gitOpacity = useTransform(smoothProgress, [0.28, 0.30, 0.43, 0.47], [0, 1, 1, 0]);
-  const gitOffsetMain = useTransform(smoothProgress, [0.3, 0.45], [0, 0]); 
-  // We'll create ghost balls that lag slightly
 
   // Linux Terminal
   const linuxOpacity = useTransform(smoothProgress, [0.43, 0.47, 0.58, 0.62], [0, 1, 1, 0]);
@@ -67,7 +90,15 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
 
   // VPS / Satellites
   const vpsOpacity = useTransform(smoothProgress, [0.73, 0.77, 0.88, 0.92], [0, 1, 1, 0]);
-  const mainY = useTransform(smoothProgress, [0.75, 0.9], ["0vh", "-15vh"]); // Rise up
+  const mainYScroll = useTransform(smoothProgress, [0.75, 0.9], ["0vh", "-15vh"]); // Rise up
+  
+  // Combine scroll Y and parallax Y
+  const mainY = useTransform(() => {
+     // We need to parse the scroll 'vh' value and add the parallax 'px' value
+     // Simplified: Just use translateY in style for parallax, and 'top' or 'y' for scroll
+     return mainYScroll.get();
+  }, [mainYScroll]);
+
   const exitOpacity = useTransform(smoothProgress, [0.9, 0.95], [1, 0]);
 
   return (
@@ -75,93 +106,68 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
       
       {/* 
          BACKGROUND SATELLITE SPHERES 
-         They act as:
-         1. Scattered debris (Hero)
-         2. Absorbed particles (Hero End)
-         3. Hidden (Mid)
-         4. Orbiting Satellites (VPS)
+         Parallax Wrapper
       */}
-      {RANDOM_SPHERES.map((sphere) => {
-        // STAGGER EFFECT:
-        // We shift the input range slightly for each sphere based on ID
-        const stagger = sphere.id * 0.002;
-        
-        // 1. Absorb Phase
-        const absorbInput = [0, 0.12 + stagger];
-        // 2. Re-emerge Phase (VPS)
-        const orbitInput = [0.75, 0.9];
-
-        // X Position: Random -> 0 -> 0 -> OrbitX
-        // We use a custom transform or composed value.
-        // It's cleaner to separate the "Hero" sphere visual from the "Satellite" visual if the motion is too complex,
-        // but let's try to compose them for a seamless transition.
-        
-        const xVal = useTransform(smoothProgress, 
-          [0, 0.12 + stagger, 0.75, 0.9], 
-          [`${sphere.x}vw`, "0vw", "0vw", `${sphere.orbitR * Math.cos(sphere.orbitAngle * Math.PI / 180)}px`]
-        );
-        
-        const yVal = useTransform(smoothProgress, 
-          [0, 0.12 + stagger, 0.75, 0.9], 
-          [`${sphere.y}vh`, "0vh", "0vh", `${sphere.orbitR * Math.sin(sphere.orbitAngle * Math.PI / 180)}px`]
-        );
-
-        const opacityVal = useTransform(smoothProgress,
-          [0, 0.12 + stagger, 0.15, 0.75, 0.8],
-          [0.6, 0, 0, 0, 0.8]
-        );
-
-        const scaleVal = useTransform(smoothProgress,
-          [0, 0.12, 0.75, 0.9],
-          [sphere.scale, 0, 0, sphere.scale * 0.5]
-        );
-
-        return (
-          <motion.div
-            key={sphere.id}
-            className="absolute rounded-full bg-surface border border-gray-800"
-            style={{
-              x: xVal,
-              y: yVal,
-              width: '2rem',
-              height: '2rem',
-              scale: scaleVal,
-              opacity: opacityVal,
-            }}
-          >
-            {/* During VPS phase, we can animate rotation to simulate orbit? 
-                Actually, putting them in a rotating parent container is better for orbits.
-                But since we are mapping individual x/y here, let's just let them be static satellites 
-                that expand out.
-            */}
-          </motion.div>
-        );
-      })}
-
-      {/* ROTATING SATELLITE CONTAINER (Overlay for movement) 
-          To make the satellites actually orbit in the VPS phase, 
-          we can render a separate set of "active" satellites that only appear then.
-          Or, we can enhance the ones above. Let's keep it simple with the ones above expanding out,
-          and maybe add a slow rotation to the entire background div if we wanted.
+      <motion.div 
+        className="absolute inset-0 w-full h-full flex items-center justify-center"
+        style={{ x: bgX, y: bgY }}
+      >
+        {RANDOM_SPHERES.map((sphere) => {
+          const stagger = sphere.id * 0.002;
           
-          Instead, let's add the rotating container specifically for the VPS phase visuals.
-      */}
+          const xVal = useTransform(smoothProgress, 
+            [0, 0.12 + stagger, 0.75, 0.9], 
+            [`${sphere.x}vw`, "0vw", "0vw", `${sphere.orbitR * Math.cos(sphere.orbitAngle * Math.PI / 180)}px`]
+          );
+          
+          const yVal = useTransform(smoothProgress, 
+            [0, 0.12 + stagger, 0.75, 0.9], 
+            [`${sphere.y}vh`, "0vh", "0vh", `${sphere.orbitR * Math.sin(sphere.orbitAngle * Math.PI / 180)}px`]
+          );
+
+          const opacityVal = useTransform(smoothProgress,
+            [0, 0.12 + stagger, 0.15, 0.75, 0.8],
+            [0.6, 0, 0, 0, 0.8]
+          );
+
+          const scaleVal = useTransform(smoothProgress,
+            [0, 0.12, 0.75, 0.9],
+            [sphere.scale, 0, 0, sphere.scale * 0.5]
+          );
+
+          return (
+            <motion.div
+              key={sphere.id}
+              className="absolute rounded-full bg-surface border border-gray-800"
+              style={{
+                x: xVal,
+                y: yVal,
+                width: '2rem',
+                height: '2rem',
+                scale: scaleVal,
+                opacity: opacityVal,
+              }}
+            />
+          );
+        })}
+
+       {/* ROTATING SATELLITE CONTAINER (VPS Phase) */}
        <motion.div 
          className="absolute inset-0 flex items-center justify-center"
          style={{ opacity: vpsOpacity }}
          animate={{ rotate: 360 }}
          transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
-       >
-         {/* We could duplicate satellites here for movement, but the expansion effect above is cool. 
-             Let's rely on the expansion above for the transition, and maybe some 'dust' here. */}
-       </motion.div>
+       />
+      </motion.div>
 
 
       {/* --- MAIN CHARACTER SPHERE --- */}
       <motion.div 
         className="relative z-10 flex items-center justify-center"
         style={{ 
-          y: mainY, 
+          y: mainYScroll, // Base scroll position
+          x: mainX, // Parallax X
+          translateY: mainYParallax, // Parallax Y addition
           opacity: exitOpacity,
         }}
       >
@@ -169,7 +175,7 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
         <motion.div
           className="relative z-20 rounded-full flex items-center justify-center"
           style={{
-            width: '6rem', // base size 24 * 0.25rem = 6rem
+            width: '6rem', 
             height: '6rem',
             scale: sphereScale,
             backgroundColor: sphereColor,
@@ -254,7 +260,7 @@ const ExperienceCanvas: React.FC<ExperienceCanvasProps> = ({ scrollProgress }) =
            </div>
         </motion.div>
 
-        {/* Phase 6: VPS Particles & Satellites (Managed by map above, plus specific glow here) */}
+        {/* Phase 6: VPS Particles & Satellites */}
         <motion.div style={{ opacity: vpsOpacity }} className="absolute inset-0 flex items-center justify-center -z-20">
            {/* Sun Halo */}
            <div className="w-[500px] h-[500px] bg-white/5 rounded-full blur-3xl absolute" />
